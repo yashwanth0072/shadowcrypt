@@ -1,0 +1,457 @@
+================================================================================
+
+CRIMSON / SHADOWCRYPT CRYPTOGRAPHIC ENGINE
+
+Module: Batch Steganography Processor
+
+Language: Java
+
+================================================================================
+
+
+
+1. MATHEMATICAL FORMULATION
+
+--------------------------------------------------------------------------------
+
+Key Derivation (PBKDF2-HMAC-SHA256):
+
+   DerivedKey = PBKDF2-HMAC-SHA256(Passphrase, Salt, N_iter, 256)
+
+
+
+Hybrid Envelope Encryption:
+
+   C_key = RSA-OAEP-SHA256(K_pub, K_session)
+
+   C_payload, T_auth = AES-256-GCM(K_session, IV, Plaintext)
+
+
+
+Payload Framing & Embedding:
+
+   E_stream = MagicHeader || Envelope
+
+   P'_{x,y} = (P_{x,y} & 0xFE) | b_i
+
+
+
+
+
+2. JAVA IMPLEMENTATION CODE
+
+--------------------------------------------------------------------------------
+
+
+
+package com.shadowcrypt.service;
+
+
+
+import com.shadowcrypt.crypto.aes.AesGcmCipher;
+
+import com.shadowcrypt.crypto.rsa.RsaOaepCipher;
+
+import com.shadowcrypt.exception.CapacityExceededException;
+
+import com.shadowcrypt.exception.CryptoException;
+
+import com.shadowcrypt.exception.SteganographyException;
+
+import com.shadowcrypt.image.models.CarrierImage;
+
+
+
+import javax.crypto.SecretKey;
+
+import javax.crypto.spec.SecretKeySpec;
+
+import java.awt.image.BufferedImage;
+
+import java.awt.image.DataBufferInt;
+
+import java.nio.ByteBuffer;
+
+import java.nio.ByteOrder;
+
+import java.security.PublicKey;
+
+import java.security.SecureRandom;
+
+import java.util.List;
+
+import java.util.Objects;
+
+import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.ExecutorService;
+
+import java.util.concurrent.Executors;
+
+import java.util.stream.Collectors;
+
+
+
+/**
+
+ * Enterprise-grade asynchronous batch processor for parallel hybrid encryption
+
+ * and high-throughput LSB steganographic embedding.
+
+ */
+
+public class BatchSteganographyProcessor implements AutoCloseable {
+
+
+
+    private static final int MAGIC_HEADER = 0x53484352; // "SHCR"
+
+    private static final int AES_KEY_SIZE_BYTES = 32;
+
+    private static final int GCM_IV_SIZE_BYTES = 12;
+
+    private static final int GCM_TAG_SIZE_BYTES = 16;
+
+    
+
+    private final SecureRandom secureRandom;
+
+    private final ExecutorService executorService;
+
+    private final RsaOaepCipher rsaCipher;
+
+    private final AesGcmCipher aesCipher;
+
+
+
+    public record BatchTask(
+
+            String id,
+
+            byte[] rawPayload,
+
+            CarrierImage carrierImage,
+
+            PublicKey recipientPublicKey
+
+    ) {
+
+        public BatchTask {
+
+            Objects.requireNonNull(id, "Task ID cannot be null");
+
+            Objects.requireNonNull(rawPayload, "Payload cannot be null");
+
+            Objects.requireNonNull(carrierImage, "Carrier image cannot be null");
+
+            Objects.requireNonNull(recipientPublicKey, "Public key cannot be null");
+
+        }
+
+    }
+
+
+
+    public record BatchResult(
+
+            String taskId,
+
+            boolean success,
+
+            BufferedImage stegoImage,
+
+            String errorMessage
+
+    ) {}
+
+
+
+    public BatchSteganographyProcessor(int threadPoolSize) {
+
+        this.secureRandom = new SecureRandom();
+
+        this.executorService = Executors.newFixedThreadPool(
+
+                threadPoolSize > 0 ? threadPoolSize : Runtime.getRuntime().availableProcessors()
+
+        );
+
+        this.rsaCipher = new RsaOaepCipher();
+
+        this.aesCipher = new AesGcmCipher();
+
+    }
+
+
+
+    /**
+
+     * Executes parallel encryption and embedding for a batch of tasks.
+
+     */
+
+    public CompletableFuture<List<BatchResult>> processBatchAsync(List<BatchTask> tasks) {
+
+        List<CompletableFuture<BatchResult>> futures = tasks.stream()
+
+                .map(task -> CompletableFuture.supplyAsync(() -> processSingleTask(task), executorService))
+
+                .collect(Collectors.toList());
+
+
+
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+
+                .thenApply(v -> futures.stream()
+
+                        .map(CompletableFuture::join)
+
+                        .collect(Collectors.toList()));
+
+    }
+
+
+
+    private BatchResult processSingleTask(BatchTask task) {
+
+        try {
+
+            // 1. Generate ephemeral session key
+
+            byte[] sessionKeyBytes = new byte[AES_KEY_SIZE_BYTES];
+
+            secureRandom.nextBytes(sessionKeyBytes);
+
+            SecretKey sessionKey = new SecretKeySpec(sessionKeyBytes, "AES");
+
+
+
+            // 2. Encrypt session key with RSA-OAEP
+
+            byte[] encryptedSessionKey = rsaCipher.encrypt(sessionKeyBytes, task.recipientPublicKey());
+
+
+
+            // 3. Encrypt payload with AES-256-GCM
+
+            byte[] iv = new byte[GCM_IV_SIZE_BYTES];
+
+            secureRandom.nextBytes(iv);
+
+            byte[] cipherTextWithTag = aesCipher.encrypt(task.rawPayload(), sessionKey, iv);
+
+
+
+            // 4. Serialize envelope payload
+
+            byte[] envelopeBytes = serializeEnvelope(encryptedSessionKey, iv, cipherTextWithTag);
+
+
+
+            // 5. Embed payload into carrier image using accelerated LSB bit-packing
+
+            BufferedImage stegoImage = embedPayloadDirect(task.carrierImage().getBufferedImage(), envelopeBytes);
+
+
+
+            return new BatchResult(task.id(), true, stegoImage, null);
+
+
+
+        } catch (CryptoException | SteganographyException e) {
+
+            return new BatchResult(task.id(), false, null, e.getMessage());
+
+        } catch (Exception e) {
+
+            return new BatchResult(task.id(), false, null, "Unexpected processing failure: " + e.getMessage());
+
+        }
+
+    }
+
+
+
+    /**
+
+     * Packs binary stream into target image data buffer using native integer array access.
+
+     */
+
+    private BufferedImage embedPayloadDirect(BufferedImage srcImage, byte[] payload) throws CapacityExceededException {
+
+        int width = srcImage.getWidth();
+
+        int height = srcImage.getHeight();
+
+        int totalPixels = width * height;
+
+
+
+        // Calculate capacity (3 bits per pixel using RGB LSBs)
+
+        long maxCapacityBits = (long) totalPixels * 3;
+
+        long requiredBits = (long) payload.length * 8 + 32; // Include 32-bit length header
+
+
+
+        if (requiredBits > maxCapacityBits) {
+
+            throw new CapacityExceededException(
+
+                    String.format("Payload size (%d bits) exceeds carrier capacity (%d bits)", requiredBits, maxCapacityBits)
+
+            );
+
+        }
+
+
+
+        // Create writable copy
+
+        BufferedImage stegoImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+
+        int[] srcPixels = ((DataBufferInt) srcImage.getRaster().getDataBuffer()).getData();
+
+        int[] destPixels = ((DataBufferInt) stegoImage.getRaster().getDataBuffer()).getData();
+
+        System.arraycopy(srcPixels, 0, destPixels, 0, srcPixels.length);
+
+
+
+        // Convert payload length + payload bytes to bit sequence buffer
+
+        ByteBuffer bitBuffer = ByteBuffer.allocate((int) (requiredBits / 8 + 4)).order(ByteOrder.BIG_ENDIAN);
+
+        bitBuffer.putInt(payload.length);
+
+        bitBuffer.put(payload);
+
+        byte[] fullBuffer = bitBuffer.array();
+
+
+
+        int byteIndex = 0;
+
+        int bitIndex = 7;
+
+        int pixelIndex = 0;
+
+
+
+        while (byteIndex < fullBuffer.length && pixelIndex < totalPixels) {
+
+            int pixel = destPixels[pixelIndex];
+
+
+
+            int r = (pixel >> 16) & 0xFF;
+
+            int g = (pixel >> 8) & 0xFF;
+
+            int b = pixel & 0xFF;
+
+
+
+            // Embed into Red LSB
+
+            if (byteIndex < fullBuffer.length) {
+
+                int bit = (fullBuffer[byteIndex] >> bitIndex) & 1;
+
+                r = (r & 0xFE) | bit;
+
+                bitIndex--;
+
+                if (bitIndex < 0) { bitIndex = 7; byteIndex++; }
+
+            }
+
+
+
+            // Embed into Green LSB
+
+            if (byteIndex < fullBuffer.length) {
+
+                int bit = (fullBuffer[byteIndex] >> bitIndex) & 1;
+
+                g = (g & 0xFE) | bit;
+
+                bitIndex--;
+
+                if (bitIndex < 0) { bitIndex = 7; byteIndex++; }
+
+            }
+
+
+
+            // Embed into Blue LSB
+
+            if (byteIndex < fullBuffer.length) {
+
+                int bit = (fullBuffer[byteIndex] >> bitIndex) & 1;
+
+                b = (b & 0xFE) | bit;
+
+                bitIndex--;
+
+                if (bitIndex < 0) { bitIndex = 7; byteIndex++; }
+
+            }
+
+
+
+            destPixels[pixelIndex] = (r << 16) | (g << 8) | b;
+
+            pixelIndex++;
+
+        }
+
+
+
+        return stegoImage;
+
+    }
+
+
+
+    private byte[] serializeEnvelope(byte[] encryptedKey, byte[] iv, byte[] cipherText) {
+
+        int totalSize = 4 + 4 + encryptedKey.length + 4 + iv.length + 4 + cipherText.length;
+
+        ByteBuffer buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.BIG_ENDIAN);
+
+        
+
+        buffer.putInt(MAGIC_HEADER);
+
+        buffer.putInt(encryptedKey.length);
+
+        buffer.put(encryptedKey);
+
+        buffer.putInt(iv.length);
+
+        buffer.put(iv);
+
+        buffer.putInt(cipherText.length);
+
+        buffer.put(cipherText);
+
+        
+
+        return buffer.array();
+
+    }
+
+
+
+    @Override
+
+    public void close() {
+
+        executorService.shutdown();
+
+    }
+  }
+

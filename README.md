@@ -133,4 +133,8 @@ steganography packages import no JavaFX. See `docs/ARCHITECTURE.md` for details.
 - SSIM, adaptive LSB, DCT, JPEG carriers, compression, error correction, signatures, and any
   network functionality are intentionally out of scope for v1.
 
+## Status
+
+All eight phases are complete. The application compiles, the complete test suite passes, and
+the JavaFX interface launches. See `docs/ARCHITECTURE.md` for module boundaries and formats.
 Contributor: Ishitha
