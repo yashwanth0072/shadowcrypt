@@ -66,12 +66,12 @@ public final class RsaOaepCipher {
             throw new MalformedPackageException("The wrapped session key must be "
                     + CryptoConstants.RSA_WRAPPED_KEY_BYTES + " bytes, got " + wrappedKey.length);
         }
+        byte[] rawKey = null;
         try {
             Cipher cipher = Cipher.getInstance(CryptoConstants.RSA_TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, privateKey, OAEP_PARAMETERS);
-            byte[] rawKey = cipher.doFinal(wrappedKey);
+            rawKey = cipher.doFinal(wrappedKey);
             if (rawKey.length != CryptoConstants.AES_KEY_BYTES) {
-                SecureWipe.wipe(rawKey);
                 throw new CryptoOperationException("Unexpected session-key length: " + rawKey.length + " bytes");
             }
             return new SecretKeySpec(rawKey, CryptoConstants.AES_ALGORITHM);
@@ -80,6 +80,8 @@ public final class RsaOaepCipher {
                     "The private key cannot unwrap this package's session key (wrong key or corrupted data)", e);
         } catch (GeneralSecurityException e) {
             throw new CryptoOperationException("RSA-OAEP key unwrapping failed", e);
+        } finally {
+            SecureWipe.wipe(rawKey);
         }
     }
 }

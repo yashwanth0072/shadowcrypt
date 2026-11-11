@@ -3,9 +3,11 @@ package com.shadowcrypt.analysis;
 import com.shadowcrypt.analysis.metrics.MseCalculator;
 import com.shadowcrypt.analysis.metrics.PsnrCalculator;
 import com.shadowcrypt.model.AnalysisReport;
+import com.shadowcrypt.model.AnalysisSource;
 import org.junit.jupiter.api.Test;
 
 import java.awt.image.BufferedImage;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -57,8 +59,10 @@ class MetricsTest {
         BufferedImage stego = solid(10, 10, 0x111111);
 
         AnalysisReport report = AnalysisCalculator.calculate(
-                carrier, stego, 1_000, 1_300, 50, 500, 4_000, 12_000_000L);
+                Path.of("stego.png"), carrier, stego, 1_000, 1_300, 50, 500, 4_000, 12_000_000L);
 
+        assertEquals(AnalysisSource.ENCRYPTION, report.source());
+        assertEquals(Path.of("stego.png"), report.stegoFile());
         assertEquals(10, report.width());
         assertEquals(10, report.height());
         assertEquals(300, report.absoluteFileSizeDifference());

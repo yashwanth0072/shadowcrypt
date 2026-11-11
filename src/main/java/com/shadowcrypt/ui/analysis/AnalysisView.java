@@ -1,9 +1,11 @@
 package com.shadowcrypt.ui.analysis;
 
 import com.shadowcrypt.ui.components.Card;
+import com.shadowcrypt.ui.components.FilePickerField;
 import com.shadowcrypt.ui.components.ImagePreviewPane;
 import com.shadowcrypt.ui.components.MetricGrid;
 import com.shadowcrypt.ui.components.SectionHeader;
+import com.shadowcrypt.ui.components.StatusBanner;
 import com.shadowcrypt.ui.theme.Theme;
 import javafx.geometry.Insets;
 import javafx.scene.control.Label;
@@ -13,17 +15,20 @@ import javafx.scene.layout.VBox;
 
 import java.awt.image.BufferedImage;
 
-/** Image-impact analysis of the most recent real encryption run. */
+/** Image-impact analysis of the most recent encryption run or of a standalone stego PNG. */
 public final class AnalysisView extends ScrollPane {
 
     private final Label emptyState = new Label(
-            "No analysis yet. Run an encryption to generate real image-impact results.");
+            "No analysis yet. Run an encryption or choose a stego PNG to analyze.");
     private final Label contextLabel = new Label();
     private final Card contentCard = new Card(null);
 
-    private final ImagePreviewPane carrierPreview = new ImagePreviewPane("Normalized carrier");
+    private final FilePickerField stegoPicker = new FilePickerField("Choose a stego PNG to analyze");
+    private final StatusBanner statusBanner = new StatusBanner();
+
+    private final ImagePreviewPane carrierPreview = new ImagePreviewPane("Carrier");
     private final ImagePreviewPane stegoPreview = new ImagePreviewPane("Stego image");
-    private final ImagePreviewPane heatmapPreview = new ImagePreviewPane("Difference heatmap (×16)");
+    private final ImagePreviewPane heatmapPreview = new ImagePreviewPane("Difference heatmap");
     private final MetricGrid metricGrid = new MetricGrid();
 
     public AnalysisView() {
@@ -33,6 +38,16 @@ public final class AnalysisView extends ScrollPane {
 
         contextLabel.getStyleClass().add(Theme.MUTED);
         contextLabel.setWrapText(true);
+
+        Label stegoHint = new Label(
+                "Analysis normally comes from an encryption run. Any ShadowCrypt stego PNG can "
+                        + "also be analyzed on its own — the carrier is reconstructed by clearing "
+                        + "the LSB plane.");
+        stegoHint.getStyleClass().add(Theme.MUTED);
+        stegoHint.setWrapText(true);
+
+        Card stegoCard = new Card("Analyze a stego image");
+        stegoCard.add(stegoPicker, stegoHint);
 
         FlowPane previews = new FlowPane(18, 18,
                 carrierPreview, stegoPreview, heatmapPreview);
@@ -48,6 +63,8 @@ public final class AnalysisView extends ScrollPane {
                 new SectionHeader("Image Analysis",
                         "Compare the normalized carrier with the produced stego image using "
                                 + "measurements from the actual encryption operation."),
+                stegoCard,
+                statusBanner,
                 emptyState,
                 contentCard);
 
@@ -69,11 +86,18 @@ public final class AnalysisView extends ScrollPane {
     }
 
     public void setPreviews(BufferedImage carrier, BufferedImage stego, BufferedImage heatmap,
-                            int width, int height) {
-        String dimensions = width + "×" + height;
-        carrierPreview.setImage(carrier, "Normalized carrier • " + dimensions);
-        stegoPreview.setImage(stego, "Stego image • " + dimensions);
-        heatmapPreview.setImage(heatmap, "Amplified absolute difference • " + dimensions);
+                            String carrierCaption, String stegoCaption, String heatmapCaption) {
+        carrierPreview.setImage(carrier, carrierCaption);
+        stegoPreview.setImage(stego, stegoCaption);
+        heatmapPreview.setImage(heatmap, heatmapCaption);
+    }
+
+    public FilePickerField stegoPicker() {
+        return stegoPicker;
+    }
+
+    public StatusBanner statusBanner() {
+        return statusBanner;
     }
 
     public MetricGrid metricGrid() {

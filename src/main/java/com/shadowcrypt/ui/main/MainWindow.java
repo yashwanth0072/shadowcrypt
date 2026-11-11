@@ -43,10 +43,10 @@ public final class MainWindow {
         new EncryptionController(encryptionView, state, keyService, encryptionService, analysisService);
 
         DecryptionView decryptionView = new DecryptionView();
-        new DecryptionController(decryptionView, state, decryptionService);
+        new DecryptionController(decryptionView, state, decryptionService, analysisService);
 
         AnalysisView analysisView = new AnalysisView();
-        new AnalysisController(analysisView, state);
+        new AnalysisController(analysisView, state, analysisService);
 
         KeyManagementView keyManagementView = new KeyManagementView();
         new KeyManagementController(keyManagementView, state, keyService);
@@ -76,13 +76,13 @@ public final class MainWindow {
         Label algorithms = new Label("AES-256-GCM  •  RSA-3072-OAEP  •  LSB-PNG");
         algorithms.getStyleClass().add(Theme.MUTED);
 
-        Label offline = new Label("ShadowCrypt 1.0  •  local only");
-        offline.getStyleClass().add(Theme.MUTED);
+        Label version = new Label("ShadowCrypt 1.0");
+        version.getStyleClass().add(Theme.MUTED);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox bar = new HBox(12, algorithms, spacer, offline);
+        HBox bar = new HBox(12, algorithms, spacer, version);
         bar.setPadding(new Insets(8, 18, 10, 18));
         bar.setStyle("-fx-background-color: #0b1015;"
                 + "-fx-border-color: #1c2530 transparent transparent transparent;"

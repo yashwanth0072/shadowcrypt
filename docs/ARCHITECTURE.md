@@ -110,7 +110,11 @@ extraction → envelope parse → actual-prefix AAD → RSA-OAEP unwrap → AES-
 
 Analysis:
 `EncryptionResult` → `AnalysisCalculator` (MSE/PSNR/heatmap) → `AnalysisReport` →
-`AnalysisView` (no recomputation in the UI).
+`AnalysisView` (no recomputation in the UI). Without an encryption run, a stego PNG goes
+`CarrierNormalizer` → bootstrap header (`LsbDecoder` + `EnvelopeParser`) →
+`CarrierEstimator` (LSBs of the overwritten channels cleared) + `PayloadFootprintGenerator`
+→ MSE/PSNR/footprint; values only an encryption run knows are stored as `-1` and omitted
+from the UI.
 
 ## UI threading
 

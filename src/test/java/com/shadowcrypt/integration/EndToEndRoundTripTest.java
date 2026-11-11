@@ -3,6 +3,7 @@ package com.shadowcrypt.integration;
 import com.shadowcrypt.config.AppConstants;
 import com.shadowcrypt.crypto.hashing.Sha256;
 import com.shadowcrypt.model.AnalysisReport;
+import com.shadowcrypt.model.AnalysisSource;
 import com.shadowcrypt.model.DecryptionRequest;
 import com.shadowcrypt.model.DecryptionResult;
 import com.shadowcrypt.model.EncryptionRequest;
@@ -166,6 +167,8 @@ class EndToEndRoundTripTest {
 
         AnalysisReport report = new AnalysisService().analyze(encrypted);
 
+        assertEquals(AnalysisSource.ENCRYPTION, report.source());
+        assertEquals(encrypted.stegoFile(), report.stegoFile());
         assertEquals(encrypted.width(), report.width());
         assertEquals(encrypted.height(), report.height());
         assertEquals(encrypted.packageBytes(), report.packageBytes());

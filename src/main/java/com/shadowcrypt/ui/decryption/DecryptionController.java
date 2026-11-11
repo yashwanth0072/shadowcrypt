@@ -7,7 +7,9 @@ import com.shadowcrypt.image.normalization.CarrierNormalizer;
 import com.shadowcrypt.model.DecryptionRequest;
 import com.shadowcrypt.model.DecryptionResult;
 import com.shadowcrypt.model.PayloadType;
+import com.shadowcrypt.service.AnalysisService;
 import com.shadowcrypt.service.DecryptionService;
+import com.shadowcrypt.ui.analysis.StegoAnalysisRunner;
 import com.shadowcrypt.ui.components.Dialogs;
 import com.shadowcrypt.ui.components.ErrorText;
 import com.shadowcrypt.ui.components.Formatters;
@@ -31,11 +33,14 @@ public final class DecryptionController {
     private final DecryptionView view;
     private final AppState state;
     private final DecryptionService decryptionService;
+    private final AnalysisService analysisService;
 
-    public DecryptionController(DecryptionView view, AppState state, DecryptionService decryptionService) {
+    public DecryptionController(DecryptionView view, AppState state,
+                                DecryptionService decryptionService, AnalysisService analysisService) {
         this.view = view;
         this.state = state;
         this.decryptionService = decryptionService;
+        this.analysisService = analysisService;
 
         view.stegoPicker().setOnBrowse(this::chooseStegoImage);
         view.privateKeyPicker().setOnBrowse(this::choosePrivateKey);
@@ -69,6 +74,7 @@ public final class DecryptionController {
             view.stegoPreview().setImage(image.image(),
                     path.getFileName() + " • " + image.width() + "×" + image.height());
             view.statusBanner().hide();
+            StegoAnalysisRunner.run(analysisService, path, state, null, null);
         } catch (ShadowCryptException e) {
             view.stegoPicker().setPath(path);
             view.stegoPreview().clear("Unsupported image");

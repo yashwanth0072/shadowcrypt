@@ -5,8 +5,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import java.util.EnumMap;
@@ -46,14 +44,6 @@ public final class NavigationPane extends VBox {
             getChildren().add(button);
         }
 
-        Region spacer = new Region();
-        VBox.setVgrow(spacer, Priority.ALWAYS);
-
-        Label footer = new Label("Local only • no network");
-        footer.getStyleClass().add(Theme.MUTED);
-        footer.setPadding(new Insets(8));
-
-        getChildren().addAll(spacer, footer);
         applySelection(NavigationItem.ENCRYPT);
     }
 

@@ -232,6 +232,23 @@ encryption run, including:
 -   peak signal-to-noise ratio (PSNR);
 -   embedding time.
 
+The same section can analyze any ShadowCrypt stego PNG on its own, so a
+demo can encrypt on one machine and analyze or decrypt on another.
+Selecting a stego image on the Decryption page, or choosing one directly
+in Image Analysis, reconstructs an approximate carrier by clearing the
+LSBs the embedder overwrote and then shows:
+
+-   the reconstructed carrier estimate and a payload-footprint heatmap;
+-   the stego PNG and package sizes read from the readable package header
+    (no private key required);
+-   capacity, capacity utilization, payload footprint, MSE, and PSNR
+    against the estimate.
+
+Values only an encryption run can know — the original cover PNG size,
+the plaintext payload size, and the embedding time — are omitted from a
+stego-only report, and MSE/PSNR are labelled as measurements against the
+estimate rather than the original cover image.
+
 ### 7. Offline Operation
 
 -   No backend server is required.
