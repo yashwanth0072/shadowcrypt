@@ -1,816 +1,474 @@
 # ShadowCrypt
 
-> **Secure file encryption meets image steganography --- entirely
-> offline.**
+**Hide secrets twice: encrypt them, then make them invisible.**
 
-ShadowCrypt is a Java desktop application that protects text and files
-using hybrid cryptography, then conceals the encrypted package inside an
-ordinary PNG image through Least Significant Bit (LSB) steganography.
+[![Java](https://img.shields.io/badge/Java-17%2B-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/)
+[![JavaFX](https://img.shields.io/badge/JavaFX-21.0.13-2C2255?style=for-the-badge)](https://openjfx.io/)
+[![Maven](https://img.shields.io/badge/Maven-3.9%2B-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white)](https://maven.apache.org/)
+[![JUnit 5](https://img.shields.io/badge/JUnit-5.10.2-25A162?style=for-the-badge&logo=junit5&logoColor=white)](https://junit.org/junit5/)
+[![Tests](https://img.shields.io/badge/tests-124-2EA043?style=for-the-badge)](#testing)
+[![Offline](https://img.shields.io/badge/network-not%20required-2F81F7?style=for-the-badge)](#offline-by-design)
 
-The application combines **AES-256-GCM**, **RSA-3072-OAEP**,
-password-protected private-key storage, and PNG-based data hiding. The
-complete workflow runs locally on the user's machine: ShadowCrypt does
-not require a backend, cloud service, or network connection.
+ShadowCrypt is a JavaFX desktop application that encrypts text or files, wraps the one-time
+encryption key for a recipient, and embeds the complete encrypted package into the least
+significant bits of an ordinary PNG image. The image still looks normal, but only the holder
+of the matching private key and passphrase can recover what is inside.
 
-------------------------------------------------------------------------
+Everything runs locally. There is no server, account, database, or network call involved in
+encryption, decryption, key handling, or image analysis.
+
+---
 
 ## Table of Contents
 
--   [Overview](#overview)
--   [Problem Statement](#problem-statement)
--   [Objectives](#objectives)
--   [How ShadowCrypt Works](#how-shadowcrypt-works)
--   [Key Features](#key-features)
--   [Technology Stack](#technology-stack)
--   [Cryptographic Design](#cryptographic-design)
--   [Steganography and Image
-    Analysis](#steganography-and-image-analysis)
--   [Application Modules](#application-modules)
--   [Package Format](#package-format)
--   [Requirements](#requirements)
--   [Installation and Setup](#installation-and-setup)
--   [Running the Application](#running-the-application)
--   [Quick Demo](#quick-demo)
--   [Running Tests](#running-tests)
--   [Project Structure](#project-structure)
--   [Security Considerations](#security-considerations)
--   [Current Limitations](#current-limitations)
--   [Possible Future Enhancements](#possible-future-enhancements)
--   [Contributing](#contributing)
--   [License](#license)
--   [Acknowledgements](#acknowledgements)
+- [What It Is For](#what-it-is-for)
+- [How It Works](#how-it-works)
+- [Features](#features)
+- [Cryptographic Design](#cryptographic-design)
+- [Package Format](#package-format)
+- [Steganography](#steganography)
+- [Image Analysis](#image-analysis)
+- [Application Tour](#application-tour)
+- [Requirements](#requirements)
+- [Getting Started](#getting-started)
+- [Quick Demo](#quick-demo)
+- [Testing](#testing)
+- [Project Structure](#project-structure)
+- [Security Notes](#security-notes)
+- [Scope and Limitations](#scope-and-limitations)
 
-------------------------------------------------------------------------
+---
 
-## Overview
+## What It Is For
 
-Traditional encryption protects the contents of a message, but the
-presence of an encrypted file can still attract attention. Steganography
-addresses a different part of the problem: it hides the existence of the
-message within another file.
+Encryption hides *what* a message says. Steganography hides the fact that a message exists.
+ShadowCrypt applies both:
 
-ShadowCrypt combines these two ideas:
+| Layer | What it protects |
+| :--- | :--- |
+| **AES-256-GCM** | The actual text or file content — confidentiality plus tamper detection |
+| **RSA-3072-OAEP** | The one-time AES key, addressed to a specific recipient's public key |
+| **PNG LSB steganography** | The encrypted package itself — concealed inside image pixel data |
 
-1.  **Encryption** makes the original content unreadable without the
-    correct cryptographic key.
-2.  **Steganography** embeds the encrypted package into a PNG carrier
-    image.
-3.  **Recipient-based key protection** ensures that only the holder of
-    the corresponding RSA private key can recover the AES key and
-    decrypt the content.
+The result is a single PNG that can be shared normally. Without the recipient's protected
+private key and its passphrase, the hidden content cannot be extracted or read.
 
-ShadowCrypt supports both text messages and arbitrary file payloads.
-File content is handled as binary data, so the workflow is not limited
-to text documents.
+### Offline by design
 
-## Problem Statement
+All cryptography uses the Java Cryptography Architecture. All image handling uses
+`javax.imageio` and JavaFX. Nothing is uploaded, downloaded, or transmitted at runtime.
 
-Sending sensitive information as a visibly encrypted file may reveal
-that a confidential exchange is taking place. At the same time, relying
-on a single encryption mechanism can make key distribution and secure
-sharing difficult.
+---
 
-ShadowCrypt aims to provide a local desktop workflow that:
+## How It Works
 
--   encrypts content before hiding it;
--   uses public-key cryptography to protect the symmetric encryption
-    key;
--   conceals the resulting encrypted package inside a PNG image;
--   allows the intended recipient to extract and decrypt the package;
--   provides image-quality measurements so users can inspect the
-    embedding result.
-
-## Objectives
-
--   Provide a simple desktop interface for encryption, decryption, key
-    management, and image analysis.
--   Protect text and file data with authenticated AES-256-GCM
-    encryption.
--   Use RSA-3072-OAEP to wrap the one-time AES key for the intended
-    recipient.
--   Store private keys in passphrase-protected encrypted files.
--   Embed and extract encrypted packages using PNG LSB steganography.
--   Validate package metadata and reject malformed, oversized, or
-    tampered input.
--   Keep all processing local to the user's computer.
-
-## How ShadowCrypt Works
-
-### High-level workflow
-
-``` text
-SENDER
-  |
-  | 1. Select text or a file
-  v
-Create a fresh AES-256 key and nonce
-  |
-  v
-Encrypt payload with AES-256-GCM
-  |
-  | 2. Protect the AES key
-  v
-Wrap AES key using recipient RSA-3072 public key
-  |
-  v
-Build the ShadowCrypt encrypted package
-  |
-  | 3. Hide package
-  v
-Embed package bits into PNG carrier using LSB
-  |
-  v
-Share the resulting stego PNG with the recipient
-  |
-  v
-RECIPIENT
-  |
-  | 4. Select stego PNG and protected private key
-  v
-Extract and validate the package
-  |
-  v
-Unlock private key with passphrase
-  |
-  v
-Unwrap AES key using RSA private key
-  |
-  v
-Authenticate and decrypt with AES-256-GCM
-  |
-  v
-Recover original text or file
+```text
+ SENDER                                                      RECIPIENT
+ ──────                                                      ─────────
+ text or file
+     │
+     ▼
+ serialize inner payload (DATA)
+     │
+     ▼
+ encrypt with fresh AES-256 key ── nonce ──┐
+     │                                      │
+     ▼                                      ▼
+ wrap AES key with recipient's RSA-3072 public key
+     │
+     ▼
+ assemble SHDW package (header + wrapped key + nonce + ciphertext)
+     │
+     ▼
+ embed package bits into PNG RGB LSBs
+     │
+     ▼
+ share stego PNG  ────────────────────────────────────────►  extract package
+                                                                  │
+                                                                  ▼
+                                                        validate header + capacity
+                                                                  │
+                                                                  ▼
+                                                        unlock .scpriv with passphrase
+                                                                  │
+                                                                  ▼
+                                                        unwrap AES key with RSA private key
+                                                                  │
+                                                                  ▼
+                                                        AES-256-GCM authenticate + decrypt
+                                                                  │
+                                                                  ▼
+                                                        recover text or file
 ```
 
-### Encryption workflow
+### Encryption pipeline
 
-1.  The sender selects a text message or a file.
-2.  The sender selects a PNG carrier image and imports the recipient's
-    public key.
-3.  ShadowCrypt creates a fresh 256-bit AES key and a 12-byte nonce for
-    the package.
-4.  The payload is encrypted using AES-256-GCM.
-5.  The AES key is wrapped using the recipient's RSA-3072 public key
-    with OAEP and SHA-256.
-6.  The encrypted content and wrapped key are serialized into the
-    ShadowCrypt package.
-7.  The package is embedded into the PNG carrier using LSB substitution.
-8.  The resulting stego PNG can be shared with the recipient.
+1. The payload (UTF-8 text or raw file bytes) is serialized into an inner `DATA` structure
+   carrying its type, filename, MIME type, original length, and bytes.
+2. A fresh 256-bit AES key and a 12-byte GCM nonce are generated.
+3. The AES key is wrapped with the recipient's RSA-3072 public key using OAEP/SHA-256,
+   producing a fixed 384-byte wrapped key.
+4. The inner payload is encrypted with AES-256-GCM using a 128-bit authentication tag. The
+   canonical header, wrapped key, and nonce (413 bytes) are authenticated as additional data.
+5. The `SHDW` envelope is assembled and checked against the carrier capacity.
+6. The package bits are written into the RGB least significant bits of the carrier PNG.
+7. The stego PNG is saved to the chosen output path.
 
-### Decryption workflow
+### Decryption pipeline
 
-1.  The recipient selects the stego PNG.
-2.  The recipient selects their `.scpriv` private-key file and enters
-    its passphrase.
-3.  ShadowCrypt extracts and validates the embedded package.
-4.  The private key is decrypted locally.
-5.  RSA-OAEP unwraps the AES key.
-6.  AES-256-GCM verifies the authentication tag and decrypts the
-    payload.
-7.  The recovered text is displayed or the recovered file is exported.
-8.  ShadowCrypt displays the recovered payload's SHA-256 hash.
+1. The stego PNG is loaded, normalized to opaque RGB, and its capacity is computed.
+2. The first 17 header bytes are extracted to learn the package length, then the declared
+   length is validated against the image capacity.
+3. The full package is extracted and parsed; malformed fields are rejected before any buffer
+   is allocated.
+4. The `.scpriv` private key is unlocked with PBKDF2-HMAC-SHA256 and AES-256-GCM.
+5. RSA-OAEP unwraps the AES session key.
+6. AES-256-GCM verifies the authentication tag and decrypts the inner payload.
+7. Text is displayed, or the recovered file is sanitized and written to the chosen folder.
+8. SHA-256 of the recovered payload is shown for comparison with the original.
 
-------------------------------------------------------------------------
+---
 
-## Key Features
+## Features
 
-### 1. Text Encryption
+| Feature | Description |
+| :--- | :--- |
+| **Text encryption** | Encrypt any UTF-8 message, with live feedback on whether it fits the carrier |
+| **File encryption** | Encrypt arbitrary files as raw binary, preserving filename and MIME metadata |
+| **Recipient-based keys** | RSA-3072 key pairs; only the private-key holder can unwrap the AES key |
+| **Protected key storage** | `.scpriv` files secured with PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM |
+| **Public key sharing** | Export/import `.scpub` files with a SHA-256 fingerprint for verification |
+| **PNG steganography** | LSB embedding in RGB channels; alpha is never modified |
+| **Capacity checking** | Oversized payloads are rejected, never silently truncated |
+| **Image analysis** | Compare carrier and stego images with MSE, PSNR, heatmaps, sizes, and capacity |
+| **Stego-only analysis** | Analyze any ShadowCrypt PNG without the private key or an original carrier |
+| **Bundled carriers** | Three built-in PNG carriers plus a one-click demo preset |
+| **Fully offline** | No backend, cloud service, or network dependency at runtime |
 
--   Encrypts text messages before embedding them in an image.
--   Uses authenticated AES-256-GCM encryption.
--   Provides live carrier-capacity feedback.
--   Supports recipient public-key import.
-
-### 2. File Encryption
-
--   Supports arbitrary file payloads, including documents, PDFs,
-    archives, and images.
--   Processes file content as raw binary data.
--   Preserves the original file data during a successful round trip.
--   Includes filename and MIME metadata in the encrypted inner payload.
--   Applies a 256 MB input-file guard.
-
-### 3. Image Steganography
-
--   Uses PNG images as carrier files.
--   Embeds the encrypted package through Least Significant Bit
-    substitution.
--   Extracts the package from a compatible stego PNG.
--   Checks available carrier capacity before embedding.
--   Rejects packages that exceed the carrier's capacity instead of
-    silently truncating data.
-
-### 4. Key Management
-
--   Generates RSA-3072 public/private key pairs.
--   Exports and imports public keys.
--   Displays SHA-256 public-key fingerprints.
--   Protects private-key files with PBKDF2-HMAC-SHA256 and AES-256-GCM.
--   Uses explicit public/private key labeling and overwrite
-    confirmation.
-
-### 5. Decryption and Recovery
-
--   Extracts and decrypts text or file payloads.
--   Requires the recipient's private key and passphrase.
--   Reports failures such as incorrect keys, incorrect passphrases,
-    malformed packages, and authentication failures.
--   Displays the recovered payload's SHA-256 hash.
--   Allows recovered files to be exported to a selected location.
-
-### 6. Image Analysis
-
-The Image Analysis section presents measurements from the actual
-encryption run, including:
-
--   normalized carrier image and stego image previews;
--   amplified difference heatmap;
--   carrier and stego PNG file sizes;
--   payload and package sizes;
--   theoretical embedding capacity and capacity utilization;
--   mean squared error (MSE);
--   peak signal-to-noise ratio (PSNR);
--   embedding time.
-
-The same section can analyze any ShadowCrypt stego PNG on its own, so a
-demo can encrypt on one machine and analyze or decrypt on another.
-Selecting a stego image on the Decryption page, or choosing one directly
-in Image Analysis, reconstructs an approximate carrier by clearing the
-LSBs the embedder overwrote and then shows:
-
--   the reconstructed carrier estimate and a payload-footprint heatmap;
--   the stego PNG and package sizes read from the readable package header
-    (no private key required);
--   capacity, capacity utilization, payload footprint, MSE, and PSNR
-    against the estimate.
-
-Values only an encryption run can know — the original cover PNG size,
-the plaintext payload size, and the embedding time — are omitted from a
-stego-only report, and MSE/PSNR are labelled as measurements against the
-estimate rather than the original cover image.
-
-### 7. Offline Operation
-
--   No backend server is required.
--   No cloud storage or external service is required.
--   Cryptographic and steganographic operations run locally.
--   Sensitive content and keys are not intentionally sent over a
-    network.
-
-------------------------------------------------------------------------
-
-## Technology Stack
-
-  Technology                             Role
-  -------------------------------------- ---------------------------------------------
-  Java 17+                               Core application language
-  JavaFX 21                              Desktop user interface
-  Maven 3.9+                             Dependency management and build automation
-  Java Cryptography Architecture (JCA)   Cryptographic operations
-  AES-256-GCM                            Authenticated symmetric encryption
-  RSA-3072-OAEP                          Secure wrapping of the AES key
-  PBKDF2-HMAC-SHA256                     Passphrase-based private-key protection
-  SHA-256                                Payload hashing and public-key fingerprints
-  PNG                                    Image carrier format
-  LSB substitution                       Steganographic embedding and extraction
-  JUnit 5                                Unit and integration testing
-
-### Main dependencies
-
-The Maven project uses JavaFX Controls, JavaFX Swing, and JUnit Jupiter
-for testing. Cryptographic operations use Java's built-in cryptography
-APIs.
-
-------------------------------------------------------------------------
+---
 
 ## Cryptographic Design
 
-ShadowCrypt uses a hybrid encryption model: symmetric encryption
-protects the payload, while asymmetric encryption protects the symmetric
-key.
+ShadowCrypt uses hybrid encryption: symmetric encryption protects the payload, while public-key
+encryption protects the symmetric key.
 
-### AES-256-GCM
+| Component | Parameters | Purpose |
+| :--- | :--- | :--- |
+| **AES-256-GCM** | 256-bit key, 12-byte nonce, 128-bit tag | Payload confidentiality and integrity |
+| **RSA-3072-OAEP** | OAEP with SHA-256, MGF1-SHA256 | Wrapping the per-package AES key |
+| **PBKDF2-HMAC-SHA256** | 600,000 iterations, 16-byte salt | Deriving the private-key encryption key |
+| **AES-256-GCM** | Key from PBKDF2, 12-byte nonce | Encrypting `.scpriv` private-key material |
+| **SHA-256** | 32-byte digest | Public-key fingerprints and recovered-payload hashes |
 
-AES-GCM is used to encrypt the inner payload.
+### Key details
 
--   Key size: 256 bits
--   Nonce size: 12 bytes
--   Authentication tag: 128 bits
--   A fresh AES key and nonce are generated for each package.
--   The package header is authenticated as additional authenticated data
-    (AAD).
+- A fresh AES key and nonce are generated for **every package**. Keys are never reused.
+- The AES key is wrapped, not the whole file; RSA never touches the bulk payload.
+- The 413-byte authenticated metadata block (17-byte bootstrap header + 384-byte wrapped key +
+  12-byte nonce) binds the package metadata to the ciphertext.
+- Private keys are stored as PKCS#8 bytes encrypted inside a versioned `.scpriv` container.
+- Public-key fingerprints are uppercase, colon-separated SHA-256 hashes of the X.509 DER
+  encoding — the same value on export and import.
+- Secret byte and character arrays are cleared after use where the code handles raw key
+  material, passphrases, and derived keys.
 
-GCM provides confidentiality and integrity/authenticity of the encrypted
-package. If ciphertext or authenticated metadata is modified, decryption
-should fail authentication.
-
-### RSA-3072-OAEP
-
-RSA is used only to wrap the AES key, not to encrypt the complete file.
-
--   RSA key size: 3072 bits
--   Padding: OAEP
--   OAEP digest: SHA-256
--   MGF1 digest: SHA-256
-
-This keeps large-payload encryption efficient while allowing the AES key
-to be delivered securely to the intended recipient.
-
-### Private-key protection
-
-Private-key files are protected using:
-
--   PBKDF2-HMAC-SHA256;
--   600,000 derivation iterations in the current format;
--   a per-file salt;
--   AES-256-GCM encryption;
--   a per-file nonce.
-
-The KDF iteration count, salt, and nonce are stored with the protected
-key data so that the file can be interpreted independently of future
-tuning.
-
-### SHA-256
-
-SHA-256 is used for:
-
--   public-key fingerprints;
--   hashing the recovered payload.
-
-The current package format does not store a plaintext payload hash.
-Therefore, the application displays the recovered SHA-256 value and
-relies on AES-GCM authentication for package integrity. Round-trip tests
-verify that recovered bytes and hashes match the original data.
-
-------------------------------------------------------------------------
-
-## Steganography and Image Analysis
-
-### Least Significant Bit (LSB) embedding
-
-LSB steganography stores data in the least significant bits of image
-color-channel values. Changing a least significant bit generally causes
-a small numerical change in a channel value.
-
-ShadowCrypt embeds the already-encrypted package into a PNG carrier. The
-package is extracted from the corresponding stego PNG during decryption.
-
-### Carrier image handling
-
--   PNG is the supported carrier format.
--   Images are normalized for embedding.
--   Transparency is composited over white.
--   The generated stego PNG is opaque RGB.
--   Capacity is checked before embedding.
-
-### Image-quality measurements
-
-**Mean Squared Error (MSE)** measures average squared pixel differences
-between the normalized carrier and the stego image.
-
-\[ MSE = `\frac{1}{N}`{=tex}`\sum`{=tex}\_{i=1}^{N}(I_i-K_i)^2 \]
-
-Here, (I) represents the carrier image, (K) represents the stego image,
-and (N) is the number of compared pixel-channel values.
-
-**Peak Signal-to-Noise Ratio (PSNR)** expresses the difference on a
-logarithmic scale.
-
-\[ PSNR =
-10`\log`{=tex}\_{10}`\left`{=tex}(`\frac{MAX^2}{MSE}`{=tex}`\right`{=tex})
-\]
-
-For 8-bit image channels, (MAX=255). A higher PSNR generally indicates a
-smaller pixel-level difference. If MSE is zero, PSNR is mathematically
-infinite.
-
-The difference heatmap amplifies visual changes to make embedding
-differences easier to inspect.
-
-------------------------------------------------------------------------
-
-## Application Modules
-
-  -----------------------------------------------------------------------
-  Module                              Responsibility
-  ----------------------------------- -----------------------------------
-  Encryption                          Accepts text or file input,
-                                      recipient public key, and carrier
-                                      image; coordinates encryption and
-                                      embedding
-
-  Decryption                          Extracts the package, unlocks the
-                                      private key, decrypts content, and
-                                      exports recovered files
-
-  Key Management                      Generates, imports, exports,
-                                      fingerprints, and stores
-                                      cryptographic keys
-
-  Image Analysis                      Displays carrier/stego comparisons,
-                                      capacity, MSE, PSNR, and embedding
-                                      time
-  -----------------------------------------------------------------------
-
-The interface is separated from the core processing logic. Cryptography,
-package-format, image, analysis, and steganography packages do not
-depend on JavaFX.
-
-------------------------------------------------------------------------
+---
 
 ## Package Format
 
-ShadowCrypt uses a versioned binary package format identified by the
-`SHDW` magic value.
+The outer envelope is identified by the ASCII magic value `SHDW` and uses big-endian fields.
 
-### Outer envelope --- SHDW v1
+### Outer envelope — `SHDW` v1
 
-The outer envelope uses big-endian fields and contains:
+| Field | Size | Notes |
+| :--- | ---: | :--- |
+| Magic | 4 bytes | `SHDW` (`53 48 44 57`) |
+| Version | 1 byte | `1` |
+| Flags | 1 byte | Reserved; only `0x00` is currently accepted |
+| Total length | 4 bytes | Includes the header itself |
+| Wrapped-key length | 2 bytes | Must be `384` |
+| Nonce length | 1 byte | Must be `12` |
+| Ciphertext length | 4 bytes | Includes the 16-byte GCM tag |
+| Wrapped AES key | 384 bytes | RSA-OAEP output |
+| Nonce | 12 bytes | AES-GCM nonce |
+| Ciphertext + tag | variable | Authenticated encrypted inner payload |
 
-  -----------------------------------------------------------------------
-  Field                               Description
-  ----------------------------------- -----------------------------------
-  Magic                               Four-byte `SHDW` identifier
+The fixed bootstrap header is **17 bytes**. Parsing validates magic, version, flags, field
+lengths, arithmetic overflow, and declared total length before allocating buffers.
 
-  Version                             Package format version
+### Inner payload — `DATA` v1
 
-  Flags                               Reserved package flags
+| Field | Size |
+| :--- | ---: |
+| Magic | 4 bytes (`DATA`) |
+| Version | 1 byte |
+| Payload type | 1 byte (`0x01` text, `0x02` file) |
+| Filename length | 2 bytes (UTF-8 byte count) |
+| Filename | variable |
+| MIME-type length | 2 bytes (UTF-8 byte count) |
+| MIME type | variable |
+| Data length | 8 bytes |
+| Payload data | variable |
 
-  Total length                        Total envelope length
+Text payloads use an empty filename and `text/plain; charset=utf-8`. File payloads carry the
+original name and a detected MIME type, falling back to `application/octet-stream`.
 
-  Wrapped-key length                  Length of the RSA-wrapped AES key
+### Key files
 
-  Nonce length                        AES-GCM nonce length
+| File | Magic / format | Contents |
+| :--- | :--- | :--- |
+| `.scpriv` | `SCPR` v1 container | Version, KDF id, iteration count, salt, nonce, encrypted PKCS#8 |
+| `.scpub` | PEM-like text | Base64 X.509 `SubjectPublicKeyInfo` between ShadowCrypt markers |
 
-  Ciphertext length                   Encrypted payload length
+---
 
-  Wrapped AES key                     AES key encrypted with the
-                                      recipient's RSA public key
+## Steganography
 
-  Nonce                               AES-GCM nonce
+ShadowCrypt embeds one package bit per RGB channel LSB.
 
-  Ciphertext + tag                    Authenticated encrypted inner
-                                      payload
-  -----------------------------------------------------------------------
+| Property | Implementation |
+| :--- | :--- |
+| **Carrier format** | PNG only |
+| **Channels used** | Red, green, blue (alpha untouched) |
+| **Traversal** | Row-major, left → right, top → bottom |
+| **Channel order** | R → G → B within each pixel |
+| **Bit order** | Most significant bit first |
+| **Capacity** | `floor(width × height × 3 / 8)` bytes |
+| **Output image** | New opaque RGB image; the input carrier is not mutated |
+| **Transparency** | Composited over white during normalization |
 
-The 17-byte bootstrap header is validated before bounded allocation. The
-canonical header, wrapped key, and nonce form the authenticated
-additional data (AAD), with a total AAD length of 413 bytes for the
-current format.
+The package is rejected if it exceeds capacity. The decoder is given an explicit byte count,
+so buffers are sized from validated metadata rather than untrusted lengths.
 
-### Inner encrypted payload
+---
 
-The inner payload is encrypted before being placed in the outer
-envelope. It contains:
+## Image Analysis
 
--   `DATA` magic identifier;
--   payload version and type;
--   filename length and UTF-8 filename;
--   MIME-type length and UTF-8 MIME type;
--   original data length;
--   original payload bytes.
+Every encryption run produces real measurements, not estimates:
 
-### Key file formats
+| Metric | What it shows |
+| :--- | :--- |
+| **Carrier and stego previews** | Normalized input image and resulting output image |
+| **Difference heatmap** | Absolute per-channel differences amplified ×16 |
+| **PNG sizes** | Original carrier size, stego size, and the difference |
+| **Payload and package sizes** | Plaintext payload size and full embedded package size |
+| **Capacity utilization** | Package size as a percentage of carrier capacity |
+| **MSE** | Mean squared error across RGB channel values |
+| **PSNR** | Peak signal-to-noise ratio in dB (`∞` when images are identical) |
+| **Embedding time** | Time taken to embed the package and write the PNG |
 
--   **Private key:** `.scpriv` protected file using the `SCPR` magic
-    identifier, version, KDF identifier, iteration count, salt, nonce,
-    and encrypted key material.
--   **Public key:** PEM-like Base64 representation of the X.509
-    SubjectPublicKeyInfo encoding.
+### Analyzing an arbitrary stego PNG
 
-------------------------------------------------------------------------
+Selecting a ShadowCrypt PNG in **Image Analysis** — or selecting one on the **Decryption**
+page — reconstructs a carrier estimate by clearing the LSBs the embedder overwrote. The report
+then shows the payload footprint, package size read from the header, capacity, and MSE/PSNR
+measured against that estimate. Values that only an encryption run can know (original carrier
+file size, plaintext payload size, embedding time) are omitted, and the comparison is clearly
+labelled as being against the estimate.
+
+---
+
+## Application Tour
+
+| View | What you do there |
+| :--- | :--- |
+| **Encryption** | Choose text or a file, pick a PNG carrier, import the recipient's public key, and run **Encrypt & Embed** |
+| **Decryption** | Select the stego PNG and `.scpriv` file, enter the passphrase, and run **Decrypt & Extract** |
+| **Image Analysis** | Inspect carrier/stego previews, the heatmap, MSE, PSNR, capacity, and timing |
+| **Key Management** | Generate RSA-3072 key pairs, export/import public keys, and save/load protected private keys |
+
+The Encryption view includes three bundled carriers — **Bundled: Blue**, **Bundled: Texture**,
+and **Bundled: Warm** — plus a **Load Demo Preset** button. The status bar always shows
+`AES-256-GCM • RSA-3072-OAEP • LSB-PNG`.
+
+---
 
 ## Requirements
 
-Before running ShadowCrypt, install:
+| Requirement | Version | Notes |
+| :--- | :--- | :--- |
+| **JDK** | 17 or newer | The project compiles with `--release 17` |
+| **Maven** | 3.9 or newer (recommended) | Build and dependency management |
+| **JavaFX** | 21.0.13 | Pulled automatically by Maven |
+| **OS** | Windows, Linux, or macOS | Any platform with a JavaFX runtime |
 
--   **JDK 17 or newer**
--   **Maven 3.9 or newer**
+The first Maven build needs internet access to download dependencies. The application itself
+runs entirely offline afterward.
 
-The project is configured for Java release 17 and JavaFX 21. The
-repository notes that it has also been built and tested with JDK 25.
+Verify your tools:
 
-Verify your installations:
-
-``` bash
+```bash
 java -version
 mvn -version
 ```
 
-------------------------------------------------------------------------
+---
 
-## Installation and Setup
+## Getting Started
 
 ### 1. Clone the repository
 
-``` bash
+```bash
 git clone https://github.com/yashwanth0072/shadowcrypt.git
-```
-
-### 2. Open the project directory
-
-``` bash
 cd shadowcrypt
 ```
 
-### 3. Compile the application
+### 2. Compile
 
-``` bash
+```bash
 mvn -q -DskipTests compile
 ```
 
-### 4. Run the test suite
+### 3. Run the application
 
-``` bash
-mvn -q test
-```
-
-### 5. Launch the desktop application
-
-``` bash
+```bash
 mvn javafx:run
 ```
 
-Maven downloads the required dependencies on the first build, so an
-internet connection may be needed during initial setup. The application
-workflow itself is designed to run offline.
+This is the recommended way to launch the app during development because Maven resolves the
+correct JavaFX native libraries for your platform.
 
-------------------------------------------------------------------------
+### 4. Build a standalone JAR
 
-## Running the Application
-
-### Recommended development launch
-
-``` bash
-mvn javafx:run
-```
-
-This is the supported launch method during development and is
-recommended if JavaFX native libraries cannot be loaded from the
-packaged JAR on a particular platform.
-
-### Build a packaged JAR
-
-``` bash
+```bash
 mvn -q package
 ```
 
-The shaded JAR is generated at:
+The shaded JAR is written to `target/shadowcrypt.jar`:
 
-``` text
-target/shadowcrypt.jar
-```
-
-Try launching it with:
-
-``` bash
+```bash
 java -jar target/shadowcrypt.jar
 ```
 
-If the platform cannot load JavaFX native libraries from the shaded JAR,
-use `mvn javafx:run`.
+> If JavaFX native libraries cannot be loaded from the shaded JAR on your platform, use
+> `mvn javafx:run` instead.
 
-------------------------------------------------------------------------
+### Command reference
+
+| Task | Command |
+| :--- | :--- |
+| Compile only | `mvn -q -DskipTests compile` |
+| Run tests | `mvn -q test` |
+| Run the app | `mvn javafx:run` |
+| Package the JAR | `mvn -q package` |
+| Launch the JAR | `java -jar target/shadowcrypt.jar` |
+
+---
 
 ## Quick Demo
 
-You can explore the main workflow using the bundled demo preset.
+The bundled demo encrypts sample text into a bundled carrier using the real pipeline.
 
-1.  Open **Key Management**.
-2.  Generate an RSA-3072 key pair.
-3.  Save the private key with a strong passphrase. The default key
-    directory is `%USERPROFILE%\.shadowcrypt\keys` on Windows.
-4.  Export the public key.
-5.  Open **Encryption** and select **Load Demo Preset** to load the
-    bundled carrier and sample text.
-6.  Select **Encrypt & Embed**.
-7.  Open **Image Analysis** to inspect the carrier, stego image,
-    difference heatmap, MSE, PSNR, capacity, sizes, and embedding time.
-8.  Open **Decryption**.
-9.  Select the generated stego PNG and the matching `.scpriv` file.
-10. Enter the private-key passphrase, choose an output folder, and
-    select **Decrypt & Extract**.
-11. Inspect the recovered content and SHA-256 hash.
+1. Open **Key Management** and select **Generate RSA-3072 key pair**.
+2. Select **Save private key…**, choose a passphrase, and save the `.scpriv` file.
+   The default location is `~/.shadowcrypt/keys` (`%USERPROFILE%\.shadowcrypt\keys` on Windows).
+3. Select **Export public key…** to save the matching `.scpub` file.
+4. Open **Encryption** and select **Load Demo Preset**. This loads `carrier-blue.png` and the
+   bundled `welcome.txt` sample, and sets the output to a temporary `shadowcrypt-demo-stego.png`.
+5. Select **Encrypt & Embed**.
+6. Open **Image Analysis** to inspect the carrier, stego image, heatmap, MSE, PSNR, capacity,
+   and embedding time.
+7. Open **Decryption**, choose the generated stego PNG and your `.scpriv` file, enter the
+   passphrase, and select **Decrypt & Extract**.
+8. Compare the recovered text with the original sample and check the displayed SHA-256 hash.
 
-To test file encryption, switch the Encryption section to **File** and
-select a file as the payload.
+To try file encryption, switch the Encryption payload toggle from **Text** to **File** and
+choose any file up to 256 MiB.
 
-------------------------------------------------------------------------
+---
 
-## Running Tests
+## Testing
 
-Run all unit and integration tests:
-
-``` bash
+```bash
 mvn -q test
 ```
 
-The repository README reports 117 unit and integration tests. The test
-coverage includes:
+The suite contains **124 tests across 23 test classes**, covering:
 
-  -----------------------------------------------------------------------
-  Test area                           What is checked
-  ----------------------------------- -----------------------------------
-  Text round trip                     Text can be encrypted, embedded,
-                                      extracted, and decrypted
+| Area | What is verified |
+| :--- | :--- |
+| **End-to-end round trips** | Text, random binary, PDF-shaped, empty, and one-byte payloads |
+| **Unicode** | Non-ASCII filenames survive encryption and recovery |
+| **Failure modes** | Wrong key, wrong passphrase, tampered ciphertext, invalid headers |
+| **Envelope validation** | Bad magic, version, flags, lengths, truncation, trailing bytes |
+| **Payload validation** | Bad inner magic/version/type, truncated data, path separators |
+| **Key handling** | RSA-3072 generation, save/load, passphrase protection, fingerprints |
+| **Steganography** | LSB round trips, capacity limits, PNG save/reload survival |
+| **Image analysis** | MSE/PSNR values, heatmaps, carrier estimation, stego-only reports |
+| **File safety** | Filename sanitization and safe export directories |
 
-  File round trip                     PDF-shaped and arbitrary binary
-                                      payloads are recovered
-
-  Empty and one-byte files            Boundary-size payload handling
-
-  Unicode filenames                   Non-ASCII filename preservation
-
-  Key handling                        Correct and incorrect RSA private
-                                      keys
-
-  Passphrase handling                 Correct and incorrect private-key
-                                      passphrases
-
-  Tamper detection                    Modified ciphertext is rejected
-
-  Envelope validation                 Invalid magic, version, header, and
-                                      length fields are rejected
-
-  Capacity validation                 Exact-capacity package accepted;
-                                      oversized package rejected
-
-  Carrier capacity                    Insufficient carrier capacity is
-                                      reported
-
-  PNG round trip                      Embedded data survives PNG save and
-                                      reload
-
-  Hash verification                   Recovered bytes and SHA-256 match
-                                      the original in round-trip tests
-
-  Integration pipeline                AES encryption, RSA key wrapping,
-                                      package serialization, LSB
-                                      embedding, extraction, key
-                                      unwrapping, and decryption work
-                                      together
-  -----------------------------------------------------------------------
-
-------------------------------------------------------------------------
+---
 
 ## Project Structure
 
-The main source code is organized under
-`src/main/java/com/shadowcrypt/`.
-
-``` text
+```text
 shadowcrypt/
 ├── docs/
 │   └── ARCHITECTURE.md
 ├── src/
 │   ├── main/
-│   │   └── java/
-│   │       └── com/
-│   │           └── shadowcrypt/
-│   │               ├── app/             # Application entry points
-│   │               ├── config/          # Centralized configuration
-│   │               ├── crypto/          # AES, RSA, PBKDF2, key storage, hashing
-│   │               ├── format/          # Envelope and payload serialization/parsing
-│   │               ├── image/           # PNG loading, normalization, and writing
-│   │               ├── steganography/   # LSB encoder, decoder, cursor, capacity
-│   │               ├── analysis/        # MSE, PSNR, heatmap, image comparison
-│   │               ├── files/           # File import/export, MIME and filename handling
-│   │               ├── service/         # Key, encryption, decryption, analysis workflows
-│   │               ├── ui/              # JavaFX theme, navigation, views, controllers
-│   │               ├── model/           # Immutable requests, results, and reports
-│   │               ├── exception/       # Domain-specific exceptions
-│   │               └── util/            # Byte and secret-clearing helpers
+│   │   ├── java/com/shadowcrypt/
+│   │   │   ├── app/              # Launcher and JavaFX application entry point
+│   │   │   ├── config/           # Crypto, package, and application constants
+│   │   │   ├── crypto/           # AES-GCM, RSA-OAEP, PBKDF2, key storage, SHA-256
+│   │   │   ├── format/           # SHDW envelope and DATA payload serialization
+│   │   │   ├── image/            # PNG loading, normalization, and writing
+│   │   │   ├── steganography/    # LSB encoder, decoder, cursor, capacity
+│   │   │   ├── analysis/         # MSE, PSNR, heatmaps, carrier estimation
+│   │   │   ├── files/            # Import/export, MIME detection, filename safety
+│   │   │   ├── service/          # Key, encryption, decryption, analysis workflows
+│   │   │   ├── ui/               # Theme, navigation, views, and controllers
+│   │   │   ├── model/            # Immutable requests, results, and reports
+│   │   │   ├── exception/        # Domain-specific exceptions
+│   │   │   └── util/             # Byte helpers and secret clearing
+│   │   └── resources/
+│   │       └── images/
+│   │           ├── carriers/     # Three bundled PNG carriers
+│   │           └── samples/      # Demo text payload
 │   └── test/
-│       └── java/                        # Unit and integration tests
-├── .gitignore
+│       └── java/                 # 23 unit and integration test classes
 ├── pom.xml
 └── README.md
 ```
 
-For more detail about module boundaries and design decisions, see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The UI depends on the service layer; cryptography, format, image, steganography, files, and
+analysis code do not depend on JavaFX. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for
+the full layering and data-flow details.
 
-------------------------------------------------------------------------
+---
 
-## Security Considerations
+## Security Notes
 
-ShadowCrypt is designed to provide encryption and concealment as
-complementary protections. Keep the following points in mind:
+- **Never share** your private key or its passphrase. Share only the stego PNG and your public
+  key.
+- **Verify fingerprints** through a trusted channel before encrypting. A substituted public key
+  would redirect the content to someone else.
+- **Use a strong passphrase.** The `.scpriv` file is only as strong as its passphrase.
+- **Back up private keys.** Losing the private key or passphrase makes encrypted content
+  unrecoverable.
+- **Use the original PNG.** Re-encoding, resizing, cropping, or converting the stego image can
+  destroy the embedded package.
+- **GCM detects tampering, not identity.** Authentication proves the data was not modified; it
+  does not prove who created the package.
+- **LSB is concealment, not proof of undetectability.** Statistical analysis or image
+  transformations may reveal or destroy hidden data.
+- **Host security still matters.** The application is offline, but keys and plaintext live on
+  your machine while in use.
 
--   Share the stego PNG and recipient public key through an appropriate
-    channel, but never share the recipient's private key or its
-    passphrase.
--   Use a strong, unique passphrase to protect the private-key file.
--   Verify the recipient's public-key fingerprint through a trusted
-    channel before encrypting sensitive information. A substituted
-    public key could redirect encrypted content to someone else.
--   Keep secure backups of private keys. Losing the private key or
-    passphrase can make encrypted content unrecoverable.
--   AES-GCM authentication detects modification of authenticated
-    encrypted data; it does not prove who sent the message.
--   LSB steganography is not a guarantee of undetectability. Statistical
-    analysis or image transformations may reveal or destroy hidden data.
--   Use the original generated PNG. Re-encoding, resizing, cropping, or
-    converting the image may damage the embedded package.
--   The application is offline by design, but the security of the host
-    computer, operating system, and stored files remains important.
--   Do not treat the project as a formally audited or certified
-    cryptographic product.
+---
 
-------------------------------------------------------------------------
+## Scope and Limitations
 
-## Current Limitations
+ShadowCrypt v1 is intentionally scoped:
 
-The current v1 implementation intentionally has a defined scope:
+| Limitation | Detail |
+| :--- | :--- |
+| **Carrier format** | PNG only |
+| **Image output** | Opaque RGB; transparency is composited over white |
+| **Input file size** | Guarded at 256 MiB |
+| **Capacity** | Packages larger than the carrier capacity are rejected, never truncated |
+| **Not included** | JPEG carriers, adaptive LSB, DCT steganography, compression, error correction, digital signatures, SSIM, and network features |
 
--   PNG is the supported carrier format.
--   Transparency is composited over white; the generated stego image is
-    opaque RGB.
--   Input files are guarded at 256 MB.
--   A package larger than the carrier capacity is rejected; data is not
-    truncated.
--   JPEG carriers, adaptive LSB, DCT-based steganography, compression,
-    error correction, digital signatures, and network functionality are
-    out of scope for v1.
--   SSIM is not currently included in the image-analysis metrics.
+---
 
-------------------------------------------------------------------------
-
-## Possible Future Enhancements
-
-Potential directions for future versions include:
-
-1.  **Adaptive LSB embedding** --- select embedding locations based on
-    image characteristics.
-2.  **DCT-based steganography** --- explore frequency-domain embedding
-    for different robustness and quality trade-offs.
-3.  **Error correction** --- investigate recovery from limited bit
-    errors.
-4.  **Compression** --- reduce package size before embedding where
-    appropriate.
-5.  **Digital signatures** --- add sender authentication and
-    message-origin verification.
-6.  **Additional image metrics** --- include SSIM and other perceptual
-    quality measures.
-7.  **More carrier formats** --- evaluate additional formats while
-    accounting for lossy transformations.
-8.  **Usability improvements** --- add clearer key-backup guidance and
-    more detailed operation reports.
-
-These are possible extensions, not claims about functionality currently
-included in v1.
-
-------------------------------------------------------------------------
-
-## Contributing
-
-Contributions, bug reports, and suggestions are welcome.
-
-1.  Fork the repository.
-
-2.  Create a feature branch:
-
-    ``` bash
-    git checkout -b feature/your-feature-name
-    ```
-
-3.  Make your changes and add or update tests.
-
-4.  Run the test suite:
-
-    ``` bash
-    mvn test
-    ```
-
-5.  Commit your changes:
-
-    ``` bash
-    git commit -m "Describe your changes"
-    ```
-
-6.  Push the branch and open a Pull Request.
-
-For security-sensitive changes, include a clear explanation of the
-threat model and tests covering both valid and invalid inputs. Do not
-submit real private keys, passphrases, or confidential payloads.
-
-------------------------------------------------------------------------
-
-## License
-
-No license information was visible in the repository details reviewed
-for this README. Unless a license is added to the repository, reuse and
-redistribution permissions are not explicitly granted. Add a `LICENSE`
-file before presenting the project as open source under a particular
-license.
-
-------------------------------------------------------------------------
-
-## Acknowledgements
-
-ShadowCrypt brings together concepts from applied cryptography,
-information security, image processing, and desktop application
-development.
-
-**Repository:**
-[github.com/yashwanth0072/shadowcrypt](https://github.com/yashwanth0072/shadowcrypt)
+**Repository:** [github.com/yashwanth0072/shadowcrypt](https://github.com/yashwanth0072/shadowcrypt)
